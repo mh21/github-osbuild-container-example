@@ -1,0 +1,47 @@
+---
+name: osbuild-composer container image
+on:
+  pull_request:
+  push:
+    branches: [main]
+env:
+  image: ghcr.io/mh21/osbuild-composer:latest
+jobs:
+
+  osbuild-composer:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: redhat-actions/buildah-build@v2
+        with:
+          containerfiles: osbuild-composer.Dockerfile
+          tags: ${{ env.image }}
+      - uses: redhat-actions/push-to-registry@v2
+        with:
+          tags: ${{ env.image }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+  ami-build:
+    runs-on: ubuntu-latest
+    services:
+      osbuild-composer:
+        image: ghcr.io/mh21/osbuild-composer:latest
+        ports:
+          - 8080:8080
+        options: --privileged
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          docker exec "${{ job.services.osbuild-composer.id }}" journalctl -f &
+          sudo mkdir -p /run/weldr
+          sudo socat unix-listen:/run/weldr/api.socket,fork \
+            tcp-connect:localhost:8080 & sleep 1
+          composer-cli blueprints push moby.toml
+          compose_id=$(composer-cli --json compose start moby qcow2 \
+            | jq -r ".[].body.build_id")
+          while [[ $(composer-cli --json compose info "${compose_id}" \
+            | jq -r ".[].body.queue_status") =~ RUNNING|WAITING ]]; do sleep 15; done

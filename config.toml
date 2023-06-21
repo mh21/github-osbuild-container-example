@@ -1,0 +1,4 @@
+provider = "aws"
+[settings]
+bucket = "arr-cki-prod-osbuild-composer"
+key = "osbuild-example"
